@@ -1,6 +1,7 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 import { fetchFile, toBlobURL } from '@ffmpeg/util'
 import { blink } from '../blink/client'
+import { validateBlobContent, validateUrl, sanitizeTextContent, logSecurityEvent } from './securityUtils'
 
 export interface RealVideoGenerationOptions {
   quality: 'low' | 'medium' | 'high'
@@ -120,8 +121,11 @@ export class RealVideoGenerator {
 
   private async generateAudioNarration(data: any): Promise<string> {
     try {
+      // Sanitize script content for security
+      const sanitizedScript = sanitizeTextContent(data.script || '')
+      
       // Split script into manageable chunks
-      const scriptChunks = this.splitScript(data.script || '', 500)
+      const scriptChunks = this.splitScript(sanitizedScript, 500)
       const audioChunks: string[] = []
 
       // Generate audio for each chunk with retry logic
@@ -135,12 +139,29 @@ export class RealVideoGenerator {
               text: chunk,
               voice: this.mapVoiceStyle(data.voiceStyle || 'professional-female')
             })
+            
+            // Validate the returned audio URL
+            const urlValidation = validateUrl(url)
+            if (!urlValidation.isValid) {
+              logSecurityEvent('invalid_url', {
+                url,
+                context: 'audio_generation',
+                error: urlValidation.error
+              })
+              throw new Error(`Invalid audio URL: ${urlValidation.error}`)
+            }
+            
             audioChunks.push(url)
             break
           } catch (error) {
             retries--
             if (retries === 0) {
               console.warn(`Failed to generate audio for chunk ${i + 1} after 3 retries`)
+              logSecurityEvent('suspicious_upload', {
+                context: 'audio_generation_failed',
+                chunk: i + 1,
+                error: error instanceof Error ? error.message : 'Unknown error'
+              })
               // Use text-to-speech fallback or skip this chunk
             } else {
               await new Promise(resolve => setTimeout(resolve, 1000)) // Wait 1s before retry
@@ -278,6 +299,19 @@ export class RealVideoGenerator {
       // Create blob
       const mimeType = options.format === 'webm' ? 'video/webm' : 'video/mp4'
       const videoBlob = new Blob([outputData], { type: mimeType })
+
+      // Validate the generated video blob for security
+      const blobValidation = validateBlobContent(videoBlob, mimeType)
+      if (!blobValidation.isValid) {
+        logSecurityEvent('file_validation_failed', {
+          context: 'video_generation',
+          error: blobValidation.error,
+          expectedType: mimeType,
+          actualType: videoBlob.type,
+          size: videoBlob.size
+        })
+        throw new Error(`Generated video failed security validation: ${blobValidation.error}`)
+      }
 
       // Cleanup FFmpeg files
       await this.cleanup()

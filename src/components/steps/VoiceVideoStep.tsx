@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Mic, Video, Play, Pause, ArrowLeft, ArrowRight, Loader2, Volume2, Settings, Download } from 'lucide-react'
+import { Mic, Video, Play, Pause, ArrowLeft, ArrowRight, Loader2, Volume2, Settings, Download, Smartphone, AlertTriangle } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
@@ -11,6 +11,8 @@ import { blink } from '../../blink/client'
 import { useToast } from '../../hooks/use-toast'
 import { VideoGenerator, VideoGenerationOptions, VideoGenerationProgress } from '../../utils/videoGenerator'
 import { APIErrorHandler } from '../../utils/apiErrorHandler'
+import { useMobilePerformance, performanceUtils } from '../../hooks/use-mobile-performance'
+import { createSecureDownloadLink, logSecurityEvent } from '../../utils/securityUtils'
 
 interface VoiceVideoStepProps {
   data: WebinarData
@@ -43,10 +45,15 @@ export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoSte
   const [selectedTTS, setSelectedTTS] = useState(data.ttsProvider || 'elevenlabs')
   const [script, setScript] = useState(data.script || '')
   const [previewAudio, setPreviewAudio] = useState<string | null>(null)
+  
+  // Mobile performance optimization
+  const mobileConfig = useMobilePerformance()
+  const recommendedSettings = performanceUtils.getRecommendedVideoSettings(mobileConfig)
+  
   const [videoOptions, setVideoOptions] = useState<VideoGenerationOptions>({
-    quality: 'medium',
+    quality: recommendedSettings.quality,
     format: 'mp4',
-    resolution: '1080p',
+    resolution: recommendedSettings.resolution,
     includeAvatar: false
   })
   const { toast } = useToast()
@@ -179,6 +186,25 @@ export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoSte
       return
     }
     
+    // Check mobile performance and warn user if needed
+    if (mobileConfig.isMobile && !performanceUtils.canHandleVideoGeneration(mobileConfig)) {
+      toast({
+        title: 'Device Performance Warning',
+        description: 'Your device may struggle with video generation. Consider using a desktop computer for better performance.',
+        variant: 'destructive'
+      })
+    }
+    
+    // Check memory usage
+    const memoryUsage = performanceUtils.monitorMemoryUsage()
+    if (memoryUsage.percentage > 70) {
+      toast({
+        title: 'High Memory Usage Detected',
+        description: `Memory usage is at ${Math.round(memoryUsage.percentage)}%. Close other tabs for better performance.`,
+        variant: 'destructive'
+      })
+    }
+    
     // Comprehensive validation
     if (!script || script.trim().length < 50) {
       toast({
@@ -299,6 +325,43 @@ export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoSte
 
   return (
     <div className="space-y-8">
+      {/* Mobile Performance Warning */}
+      {mobileConfig.isMobile && (
+        <Card className={`border-2 ${mobileConfig.isLowEndDevice ? 'border-red-200 bg-red-50' : 'border-yellow-200 bg-yellow-50'}`}>
+          <CardContent className="p-4">
+            <div className="flex items-start space-x-3">
+              {mobileConfig.isLowEndDevice ? (
+                <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5" />
+              ) : (
+                <Smartphone className="h-5 w-5 text-yellow-600 mt-0.5" />
+              )}
+              <div className="flex-1">
+                <h4 className={`font-medium ${mobileConfig.isLowEndDevice ? 'text-red-800' : 'text-yellow-800'}`}>
+                  {mobileConfig.isLowEndDevice ? 'Low-End Device Detected' : 'Mobile Device Detected'}
+                </h4>
+                <p className={`text-sm mt-1 ${mobileConfig.isLowEndDevice ? 'text-red-700' : 'text-yellow-700'}`}>
+                  {mobileConfig.isLowEndDevice 
+                    ? 'Video generation may be slow or fail on this device. Consider using a desktop computer.'
+                    : 'Video settings have been optimized for mobile performance. Generation may take longer than on desktop.'
+                  }
+                </p>
+                <div className="mt-2 text-xs space-y-1">
+                  <div className={mobileConfig.isLowEndDevice ? 'text-red-600' : 'text-yellow-600'}>
+                    • Max resolution: {mobileConfig.maxResolution}
+                  </div>
+                  <div className={mobileConfig.isLowEndDevice ? 'text-red-600' : 'text-yellow-600'}>
+                    • Recommended quality: {recommendedSettings.quality}
+                  </div>
+                  <div className={mobileConfig.isLowEndDevice ? 'text-red-600' : 'text-yellow-600'}>
+                    • Memory limit: {mobileConfig.memoryLimit}MB
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Voice Selection */}
       <div className="space-y-4">
         <div className="flex items-center space-x-2">
@@ -505,14 +568,35 @@ export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoSte
             <CardContent className="p-6">
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">{videoProgress.message}</span>
-                  <span className="text-sm text-muted-foreground">{Math.round(videoProgress.progress)}%</span>
+                  <span 
+                    className="text-sm font-medium"
+                    aria-live="polite"
+                    aria-atomic="true"
+                  >
+                    {videoProgress.message}
+                  </span>
+                  <span 
+                    className="text-sm text-muted-foreground"
+                    aria-label={`Progress: ${Math.round(videoProgress.progress)} percent complete`}
+                  >
+                    {Math.round(videoProgress.progress)}%
+                  </span>
                 </div>
-                <Progress value={videoProgress.progress} className="h-2" />
+                <Progress 
+                  value={videoProgress.progress} 
+                  className="h-2" 
+                  role="progressbar"
+                  aria-valuenow={Math.round(videoProgress.progress)}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label="Video generation progress"
+                />
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Stage: {videoProgress.stage.replace('_', ' ')}</span>
+                  <span aria-label={`Current stage: ${videoProgress.stage.replace('_', ' ')}`}>
+                    Stage: {videoProgress.stage.replace('_', ' ')}
+                  </span>
                   {videoProgress.estimatedTimeRemaining && (
-                    <span>
+                    <span aria-label={`Estimated time remaining: ${Math.round(videoProgress.estimatedTimeRemaining / 60)} minutes`}>
                       ~{Math.round(videoProgress.estimatedTimeRemaining / 60)} minutes remaining
                     </span>
                   )}
@@ -539,14 +623,22 @@ export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoSte
                     className="w-full h-full"
                     poster="https://via.placeholder.com/1920x1080/6366F1/FFFFFF?text=Webinar+Video"
                     preload="metadata"
+                    aria-label={`Webinar video: ${data.topic || 'Generated webinar'}, duration approximately ${data.duration} minutes`}
+                    aria-describedby="video-description"
                   >
                     <source src={data.videoUrl} type="video/mp4" />
-                    Your browser doesn't support video playback
+                    <track kind="captions" src="" label="English captions" default />
+                    Your browser doesn't support video playback. You can download the video using the download button below.
                   </video>
                 ) : (
-                  <div className="flex items-center justify-center h-full text-white">
+                  <div 
+                    className="flex items-center justify-center h-full text-white"
+                    role="status"
+                    aria-live="polite"
+                    aria-label="Video preview loading"
+                  >
                     <div className="text-center">
-                      <Video className="h-12 w-12 mx-auto mb-2" />
+                      <Video className="h-12 w-12 mx-auto mb-2" aria-hidden="true" />
                       <p className="text-sm">Video preview loading...</p>
                       <p className="text-xs mt-1 text-gray-300">
                         Duration: ~{data.duration} minutes
@@ -554,6 +646,14 @@ export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoSte
                     </div>
                   </div>
                 )}
+              </div>
+              
+              {/* Hidden description for screen readers */}
+              <div id="video-description" className="sr-only">
+                This is a generated webinar video about {data.topic || 'the selected topic'} 
+                for {data.audience || 'the target audience'}. 
+                The video contains {data.slides?.length || 0} slides and has a duration of approximately {data.duration} minutes.
+                Use the video controls to play, pause, adjust volume, or enter fullscreen mode.
               </div>
               
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
@@ -575,7 +675,7 @@ export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoSte
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Video controls">
                 <Button 
                   variant="outline"
                   onClick={() => {
@@ -583,13 +683,22 @@ export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoSte
                     if (video) {
                       if (video.paused) {
                         video.play()
+                        toast({
+                          title: 'Video playing',
+                          description: 'The webinar video is now playing.'
+                        })
                       } else {
                         video.pause()
+                        toast({
+                          title: 'Video paused',
+                          description: 'The webinar video has been paused.'
+                        })
                       }
                     }
                   }}
+                  aria-label="Toggle video playback - play or pause the webinar video"
                 >
-                  <Play className="h-4 w-4 mr-2" />
+                  <Play className="h-4 w-4 mr-2" aria-hidden="true" />
                   Play/Pause
                 </Button>
                 <Button 
@@ -598,10 +707,21 @@ export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoSte
                     const video = document.querySelector('video')
                     if (video && video.requestFullscreen) {
                       video.requestFullscreen()
+                      toast({
+                        title: 'Entering fullscreen',
+                        description: 'Video is now in fullscreen mode. Press Escape to exit.'
+                      })
+                    } else {
+                      toast({
+                        title: 'Fullscreen not supported',
+                        description: 'Your browser does not support fullscreen video.',
+                        variant: 'destructive'
+                      })
                     }
                   }}
+                  aria-label="Enter fullscreen mode for better video viewing"
                 >
-                  <Video className="h-4 w-4 mr-2" />
+                  <Video className="h-4 w-4 mr-2" aria-hidden="true" />
                   Full Screen
                 </Button>
                 <Button 
@@ -612,34 +732,60 @@ export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoSte
                         // Use requestAnimationFrame to prevent UI blocking
                         await new Promise(resolve => requestAnimationFrame(resolve))
                         
-                        const a = document.createElement('a')
-                        a.href = data.videoUrl
-                        a.download = `${(data.topic || 'webinar').replace(/\s+/g, '_')}_webinar.mp4`
-                        a.target = '_blank'
-                        a.rel = 'noopener noreferrer'
+                        const filename = `${(data.topic || 'webinar').replace(/\s+/g, '_')}_webinar.mp4`
+                        
+                        // Create secure download link with validation
+                        const secureDownload = createSecureDownloadLink(
+                          data.videoUrl,
+                          filename,
+                          'video/mp4'
+                        )
+                        
+                        if (!secureDownload.success) {
+                          logSecurityEvent('invalid_url', {
+                            context: 'video_download',
+                            url: data.videoUrl,
+                            error: secureDownload.error
+                          })
+                          throw new Error(secureDownload.error)
+                        }
                         
                         // Add to DOM and trigger download asynchronously
-                        document.body.appendChild(a)
+                        document.body.appendChild(secureDownload.element!)
                         
                         // Use setTimeout to ensure DOM update completes
                         setTimeout(() => {
-                          a.click()
+                          secureDownload.element!.click()
                           setTimeout(() => {
-                            if (document.body.contains(a)) {
-                              document.body.removeChild(a)
+                            if (document.body.contains(secureDownload.element!)) {
+                              document.body.removeChild(secureDownload.element!)
                             }
                           }, 100)
                         }, 0)
                         
+                        toast({
+                          title: 'Download started',
+                          description: 'Your webinar video download has begun.'
+                        })
+                        
                       } catch (error) {
                         console.error('Download failed:', error)
-                        // Fallback: open in new tab
-                        window.open(data.videoUrl, '_blank')
+                        logSecurityEvent('file_validation_failed', {
+                          context: 'video_download_failed',
+                          url: data.videoUrl,
+                          error: error instanceof Error ? error.message : 'Unknown error'
+                        })
+                        toast({
+                          title: 'Download failed',
+                          description: 'Unable to download video securely. Please try again.',
+                          variant: 'destructive'
+                        })
                       }
                     }
                   }}
+                  aria-label={`Download webinar video file: ${(data.topic || 'webinar').replace(/\s+/g, '_')}_webinar.mp4`}
                 >
-                  <Download className="h-4 w-4 mr-2" />
+                  <Download className="h-4 w-4 mr-2" aria-hidden="true" />
                   Download Video
                 </Button>
               </div>
