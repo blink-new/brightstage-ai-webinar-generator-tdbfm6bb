@@ -75,7 +75,7 @@ function App() {
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
           <div className="mb-4">
-            <Logo size="lg" showText={false} />
+            <Logo size="lg" />
           </div>
           <Loader2 className="h-6 w-6 animate-spin mx-auto mb-4 text-primary" />
           <p className="text-muted-foreground">Loading BrightStage AI...</p>
@@ -90,7 +90,7 @@ function App() {
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
             <div className="mx-auto mb-4">
-              <Logo size="xl" showText={false} />
+              <Logo size="xl" />
             </div>
             <CardTitle className="text-2xl">Welcome to BrightStage AI</CardTitle>
             <CardDescription>

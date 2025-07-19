@@ -292,7 +292,8 @@ function WebinarCreator({ user, onBack, editingWebinarId }: WebinarCreatorProps)
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center space-x-4">
-              <Logo size="sm" showText={true} />
+              <Logo size="sm" />
+              <span className="text-lg font-semibold text-foreground">BrightStage AI</span>
               <div className="h-6 w-px bg-border"></div>
               <Button variant="ghost" onClick={onBack}>
                 <ArrowLeft className="h-4 w-4 mr-2" />
