@@ -3,6 +3,7 @@ import { ArrowLeft, Check, Save } from 'lucide-react'
 import { Button } from './ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Progress } from './ui/progress'
+import { Logo } from './ui/logo'
 import { ContentInputStep } from './steps/ContentInputStep'
 import { SlideDesignStep } from './steps/SlideDesignStep'
 import { VoiceVideoStep } from './steps/VoiceVideoStep'
@@ -291,12 +292,7 @@ function WebinarCreator({ user, onBack, editingWebinarId }: WebinarCreatorProps)
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <div className="w-6 h-6 bg-primary rounded flex items-center justify-center">
-                  <span className="text-white font-bold text-xs">BS</span>
-                </div>
-                <span className="text-lg font-bold text-primary">BrightStage AI</span>
-              </div>
+              <Logo size="sm" showText={true} />
               <div className="h-6 w-px bg-border"></div>
               <Button variant="ghost" onClick={onBack}>
                 <ArrowLeft className="h-4 w-4 mr-2" />

@@ -7,7 +7,8 @@ import WebinarCreator from './components/WebinarCreator'
 import AdminPanel from './components/AdminPanel'
 import { Button } from './components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card'
-import { Loader2, Sparkles, Coins } from 'lucide-react'
+import { Logo } from './components/ui/logo'
+import { Loader2, Coins } from 'lucide-react'
 
 function App() {
   const { user, isLoading, isAuthenticated, login } = useAuth()
@@ -73,7 +74,10 @@ function App() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
+          <div className="mb-4">
+            <Logo size="lg" showText={false} />
+          </div>
+          <Loader2 className="h-6 w-6 animate-spin mx-auto mb-4 text-primary" />
           <p className="text-muted-foreground">Loading BrightStage AI...</p>
         </div>
       </div>
@@ -85,8 +89,8 @@ function App() {
       <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
-            <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
-              <Sparkles className="h-6 w-6 text-primary" />
+            <div className="mx-auto mb-4">
+              <Logo size="xl" showText={false} />
             </div>
             <CardTitle className="text-2xl">Welcome to BrightStage AI</CardTitle>
             <CardDescription>

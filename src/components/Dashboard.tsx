@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Plus, Video, FileText, Clock, Settings, LogOut, Coins, Trash2, Edit, Sparkles } from 'lucide-react'
+import { Plus, Video, FileText, Clock, Settings, LogOut, Coins, Trash2, Edit } from 'lucide-react'
 import { Button } from './ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card'
 import { Badge } from './ui/badge'
+import { Logo } from './ui/logo'
 import { useAuth } from '../hooks/useAuth'
 import { useWebinarProject } from '../hooks/useWebinarProject'
 import { useToast } from '../hooks/use-toast'
@@ -72,12 +73,7 @@ function Dashboard({ user, onCreateWebinar, onEditWebinar, onOpenAdmin }: Dashbo
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                  <Sparkles className="h-5 w-5 text-white" />
-                </div>
-                <span className="text-xl font-bold text-primary">BrightStage AI</span>
-              </div>
+              <Logo size="md" showText={true} />
             </div>
             
             <div className="flex items-center space-x-4">

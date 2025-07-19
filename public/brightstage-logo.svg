@@ -1,0 +1,36 @@
+<svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle with gradient -->
+  <defs>
+    <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366F1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#8B5CF6;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="sparkleGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#F59E0B;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#FBBF24;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Main circle background -->
+  <circle cx="20" cy="20" r="18" fill="url(#logoGradient)" stroke="white" stroke-width="2"/>
+  
+  <!-- Stage/Platform base -->
+  <rect x="8" y="26" width="24" height="3" rx="1.5" fill="white" opacity="0.9"/>
+  
+  <!-- Spotlight/Stage light -->
+  <ellipse cx="20" cy="15" rx="8" ry="6" fill="white" opacity="0.2"/>
+  <ellipse cx="20" cy="15" rx="5" ry="4" fill="white" opacity="0.3"/>
+  
+  <!-- AI Sparkle/Star in center -->
+  <g transform="translate(20, 15)">
+    <!-- Main star shape -->
+    <path d="M0,-4 L1.2,-1.2 L4,0 L1.2,1.2 L0,4 L-1.2,1.2 L-4,0 L-1.2,-1.2 Z" fill="url(#sparkleGradient)"/>
+    <!-- Smaller sparkles around -->
+    <circle cx="6" cy="-2" r="1" fill="url(#sparkleGradient)" opacity="0.8"/>
+    <circle cx="-5" cy="3" r="0.8" fill="url(#sparkleGradient)" opacity="0.6"/>
+    <circle cx="3" cy="5" r="0.6" fill="url(#sparkleGradient)" opacity="0.7"/>
+  </g>
+  
+  <!-- Subtle "BS" text integrated -->
+  <text x="20" y="35" text-anchor="middle" font-family="Inter, sans-serif" font-size="6" font-weight="600" fill="white" opacity="0.8">BS</text>
+</svg>
