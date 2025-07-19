@@ -72,9 +72,8 @@ function Dashboard({ user, onCreateWebinar, onEditWebinar, onOpenAdmin }: Dashbo
       <header className="border-b bg-card">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center">
               <Logo size="md" />
-              <span className="text-xl font-semibold text-foreground">BrightStage AI</span>
             </div>
             
             <div className="flex items-center space-x-4">

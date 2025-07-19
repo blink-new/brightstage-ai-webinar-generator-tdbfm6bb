@@ -77,8 +77,7 @@ function App() {
           <div className="mb-4">
             <Logo size="lg" />
           </div>
-          <Loader2 className="h-6 w-6 animate-spin mx-auto mb-4 text-primary" />
-          <p className="text-muted-foreground">Loading BrightStage AI...</p>
+          <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
         </div>
       </div>
     )
@@ -92,7 +91,7 @@ function App() {
             <div className="mx-auto mb-4">
               <Logo size="xl" />
             </div>
-            <CardTitle className="text-2xl">Welcome to BrightStage AI</CardTitle>
+            <CardTitle className="text-2xl">Welcome</CardTitle>
             <CardDescription>
               Transform your ideas into professional webinars with AI-powered content generation, 
               slide design, and voice narration.
