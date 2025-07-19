@@ -1,355 +1,226 @@
-import { FFmpeg } from '@ffmpeg/ffmpeg'
-import { fetchFile, toBlobURL } from '@ffmpeg/util'
+import type { WebinarData } from '../types/webinar'
+import type { VideoGenerationProgress } from './videoGenerator'
 import { blink } from '../blink/client'
-import { validateBlobContent, validateUrl, sanitizeTextContent, logSecurityEvent } from './securityUtils'
+import { performanceMonitor } from './performanceUtils'
 
-export interface RealVideoGenerationOptions {
+export interface RealVideoOptions {
   quality: 'low' | 'medium' | 'high'
   format: 'mp4' | 'webm'
   resolution: '720p' | '1080p' | '4k'
   fps: number
 }
 
-export interface VideoGenerationProgress {
-  stage: 'preparing' | 'generating_audio' | 'creating_slides' | 'assembling_video' | 'finalizing' | 'complete'
-  progress: number
-  message: string
-  estimatedTimeRemaining?: number
-}
-
 export class RealVideoGenerator {
-  private ffmpeg: FFmpeg | null = null
-  private isLoaded = false
+  private ffmpegLoaded = false
+  private ffmpeg: any = null
 
   constructor() {
-    // Initialize FFmpeg safely
-    try {
-      this.ffmpeg = new FFmpeg()
-    } catch (error) {
-      console.error('Failed to create FFmpeg instance:', error)
-      this.ffmpeg = null
-    }
+    // Initialize FFmpeg if available
+    this.initializeFFmpeg()
   }
 
-  async initialize(): Promise<void> {
-    if (this.isLoaded || !this.ffmpeg) return
-
+  private async initializeFFmpeg() {
     try {
-      // Ensure FFmpeg instance exists before loading
-      const ffmpegInstance = this.ffmpeg
-      if (!ffmpegInstance) {
-        throw new Error('FFmpeg instance not available')
-      }
-
-      // Load FFmpeg with proper CORS handling
-      const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd'
-      await ffmpegInstance.load({
-        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+      // Try to load FFmpeg for client-side video processing
+      const { FFmpeg } = await import('@ffmpeg/ffmpeg')
+      const { fetchFile } = await import('@ffmpeg/util')
+      
+      this.ffmpeg = new FFmpeg()
+      
+      // Load FFmpeg with error handling
+      await this.ffmpeg.load({
+        coreURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
+        wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm'
       })
-      this.isLoaded = true
-      console.log('FFmpeg loaded successfully')
+      
+      this.ffmpegLoaded = true
+      console.log('FFmpeg loaded successfully for real video generation')
     } catch (error) {
-      console.error('Failed to load FFmpeg:', error)
-      throw new Error('Video processing engine failed to initialize')
+      console.warn('FFmpeg not available, falling back to mock video generation:', error)
+      this.ffmpegLoaded = false
     }
   }
 
   async generateRealVideo(
-    data: any,
-    options: RealVideoGenerationOptions,
+    data: WebinarData,
+    options: RealVideoOptions,
     onProgress?: (progress: VideoGenerationProgress) => void
   ): Promise<{ url: string; duration: number; size: number }> {
-    if (!this.ffmpeg) {
-      throw new Error('FFmpeg not initialized')
+    if (!this.ffmpegLoaded) {
+      throw new Error('FFmpeg not available for real video generation')
     }
 
-    try {
-      // Initialize FFmpeg if not already loaded
-      await this.initialize()
+    return performanceMonitor.monitorAsync('Real Video Generation', async () => {
+      try {
+        // Stage 1: Prepare assets
+        this.updateProgress(onProgress, 'preparing', 5, 'Preparing video assets...')
+        const assets = await this.prepareVideoAssets(data)
 
-      // Stage 1: Generate audio narration
-      onProgress?.({
-        stage: 'generating_audio',
-        progress: 10,
-        message: 'Generating voice narration...'
-      })
+        // Stage 2: Generate audio
+        this.updateProgress(onProgress, 'generating_audio', 20, 'Generating audio narration...')
+        const audioFile = await this.generateAudioTrack(data.script!, data.voiceStyle || 'professional-female')
 
-      const audioUrl = await this.generateAudioNarration(data)
-      
-      // Stage 2: Create slide images
-      onProgress?.({
-        stage: 'creating_slides',
-        progress: 30,
-        message: 'Creating slide visuals...'
-      })
+        // Stage 3: Create slide images
+        this.updateProgress(onProgress, 'creating_slides', 40, 'Creating slide visuals...')
+        const slideImages = await this.generateSlideImages(data.slides!, data.template || 'modern-business')
 
-      const slideImages = await this.generateSlideImages(data)
+        // Stage 4: Assemble video
+        this.updateProgress(onProgress, 'assembling_video', 70, 'Assembling video with FFmpeg...')
+        const videoBlob = await this.assembleVideoWithFFmpeg(slideImages, audioFile, options)
 
-      // Stage 3: Assemble video with FFmpeg
-      onProgress?.({
-        stage: 'assembling_video',
-        progress: 60,
-        message: 'Assembling video with slides and audio...'
-      })
+        // Stage 5: Upload final video
+        this.updateProgress(onProgress, 'finalizing', 90, 'Uploading final video...')
+        const videoUrl = await this.uploadVideo(videoBlob, data.topic)
 
-      const videoBlob = await this.assembleVideoWithFFmpeg(
-        slideImages,
-        audioUrl,
-        data,
-        options,
-        onProgress
-      )
+        this.updateProgress(onProgress, 'complete', 100, 'Video generation complete!')
 
-      // Stage 4: Upload to storage
-      onProgress?.({
-        stage: 'finalizing',
-        progress: 90,
-        message: 'Uploading video...'
-      })
-
-      const { publicUrl } = await blink.storage.upload(
-        videoBlob,
-        `videos/webinar_${Date.now()}.${options.format}`,
-        { upsert: true }
-      )
-
-      onProgress?.({
-        stage: 'complete',
-        progress: 100,
-        message: 'Video generation complete!'
-      })
-
-      return {
-        url: publicUrl,
-        duration: data.duration * 60,
-        size: videoBlob.size
+        return {
+          url: videoUrl,
+          duration: data.duration * 60,
+          size: videoBlob.size
+        }
+      } catch (error) {
+        console.error('Real video generation failed:', error)
+        throw new Error(`Real video generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
-    } catch (error) {
-      console.error('Real video generation failed:', error)
-      throw new Error(`Video generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    })
+  }
+
+  private async prepareVideoAssets(data: WebinarData): Promise<any> {
+    // Validate required data
+    if (!data.slides || data.slides.length === 0) {
+      throw new Error('No slides available for video generation')
+    }
+
+    if (!data.script) {
+      throw new Error('No script available for video generation')
+    }
+
+    // Calculate timing for each slide
+    const totalDuration = data.duration * 60 // Convert to seconds
+    const slideDurations = this.calculateSlideDurations(data.slides, totalDuration)
+
+    return {
+      slides: data.slides,
+      script: data.script,
+      slideDurations,
+      totalDuration
     }
   }
 
-  private async generateAudioNarration(data: any): Promise<string> {
-    try {
-      // Sanitize script content for security
-      const sanitizedScript = sanitizeTextContent(data.script || '')
+  private calculateSlideDurations(slides: any[], totalDuration: number): number[] {
+    const durations: number[] = []
+    let remainingTime = totalDuration
+    
+    for (let i = 0; i < slides.length; i++) {
+      const slide = slides[i]
+      let slideDuration: number
       
-      // Split script into manageable chunks
-      const scriptChunks = this.splitScript(sanitizedScript, 500)
-      const audioChunks: string[] = []
+      if (i === 0) {
+        // Title slide - shorter duration
+        slideDuration = Math.min(30, remainingTime * 0.1)
+      } else if (i === slides.length - 1) {
+        // Last slide - use remaining time
+        slideDuration = Math.max(15, remainingTime)
+      } else {
+        // Content slides - distribute evenly with content-based adjustments
+        const baseDuration = remainingTime / (slides.length - i)
+        const contentComplexity = this.calculateSlideComplexity(slide)
+        slideDuration = baseDuration * contentComplexity
+      }
+      
+      slideDuration = Math.max(10, Math.min(120, slideDuration)) // Between 10s and 2min
+      durations.push(slideDuration)
+      remainingTime -= slideDuration
+    }
+    
+    return durations
+  }
 
-      // Generate audio for each chunk with retry logic
-      for (let i = 0; i < scriptChunks.length; i++) {
-        const chunk = scriptChunks[i]
-        let retries = 3
-        
-        while (retries > 0) {
-          try {
-            const { url } = await blink.ai.generateSpeech({
-              text: chunk,
-              voice: this.mapVoiceStyle(data.voiceStyle || 'professional-female')
-            })
-            
-            // Validate the returned audio URL
-            const urlValidation = validateUrl(url)
-            if (!urlValidation.isValid) {
-              logSecurityEvent('invalid_url', {
-                url,
-                context: 'audio_generation',
-                error: urlValidation.error
-              })
-              throw new Error(`Invalid audio URL: ${urlValidation.error}`)
-            }
-            
-            audioChunks.push(url)
-            break
-          } catch (error) {
-            retries--
-            if (retries === 0) {
-              console.warn(`Failed to generate audio for chunk ${i + 1} after 3 retries`)
-              logSecurityEvent('suspicious_upload', {
-                context: 'audio_generation_failed',
-                chunk: i + 1,
-                error: error instanceof Error ? error.message : 'Unknown error'
-              })
-              // Use text-to-speech fallback or skip this chunk
-            } else {
-              await new Promise(resolve => setTimeout(resolve, 1000)) // Wait 1s before retry
-            }
-          }
-        }
+  private calculateSlideComplexity(slide: any): number {
+    let complexity = 1.0
+    
+    if (slide.points && slide.points.length > 0) {
+      complexity += slide.points.length * 0.15
+    }
+    
+    if (slide.image || slide.chart || slide.statistics) {
+      complexity += 0.3
+    }
+    
+    if (slide.quote) {
+      complexity += 0.2
+    }
+    
+    return Math.min(1.8, complexity)
+  }
+
+  private async generateAudioTrack(script: string, voiceStyle: string): Promise<Uint8Array> {
+    try {
+      if (!blink?.ai) {
+        throw new Error('AI service not available for audio generation')
       }
 
-      if (audioChunks.length === 0) {
-        throw new Error('Failed to generate any audio segments')
+      // Map voice style to available voices
+      const voiceMap: Record<string, string> = {
+        'professional-male': 'onyx',
+        'professional-female': 'nova',
+        'enthusiastic-male': 'echo',
+        'enthusiastic-female': 'shimmer',
+        'calm-male': 'fable',
+        'calm-female': 'alloy'
       }
 
-      // For now, return the first successful audio chunk
-      // In production, you would merge these using FFmpeg
-      return audioChunks[0]
+      const voice = voiceMap[voiceStyle] || 'nova'
+
+      // Generate speech
+      const { url } = await blink.ai.generateSpeech({
+        text: script,
+        voice
+      })
+
+      // Fetch audio data
+      const response = await fetch(url)
+      const arrayBuffer = await response.arrayBuffer()
+      return new Uint8Array(arrayBuffer)
     } catch (error) {
       throw new Error(`Audio generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
-  private async generateSlideImages(data: any): Promise<string[]> {
-    const slideImages: string[] = []
+  private async generateSlideImages(slides: any[], template: string): Promise<Uint8Array[]> {
+    const images: Uint8Array[] = []
     
-    for (let i = 0; i < data.slides.length; i++) {
-      const slide = data.slides[i]
-      try {
-        const slideImageUrl = await this.createSlideImage(slide, i + 1, data.template)
-        slideImages.push(slideImageUrl)
-      } catch (error) {
-        console.error(`Failed to generate slide ${i + 1}:`, error)
-        // Create fallback slide
-        const fallbackUrl = await this.createFallbackSlideImage(slide, i + 1)
-        slideImages.push(fallbackUrl)
-      }
-    }
-
-    return slideImages
-  }
-
-  private async assembleVideoWithFFmpeg(
-    slideImages: string[],
-    audioUrl: string,
-    data: any,
-    options: RealVideoGenerationOptions,
-    onProgress?: (progress: VideoGenerationProgress) => void
-  ): Promise<Blob> {
-    // Ensure FFmpeg is available before proceeding
-    const ffmpegInstance = this.ffmpeg
-    if (!ffmpegInstance) {
-      throw new Error('FFmpeg not initialized')
-    }
-
-    try {
-      // Calculate slide durations safely
-      const totalDuration = (data?.duration || 60) * 60 // Convert to seconds
-      const slideDuration = slideImages.length > 0 ? totalDuration / slideImages.length : 5
-
-      // Download and prepare slide images
-      onProgress?.({
-        stage: 'assembling_video',
-        progress: 65,
-        message: 'Preparing slide images...'
-      })
-
-      for (let i = 0; i < slideImages.length; i++) {
-        const imageData = await fetchFile(slideImages[i])
-        await ffmpegInstance.writeFile(`slide_${i}.png`, imageData)
-      }
-
-      // Download and prepare audio
-      onProgress?.({
-        stage: 'assembling_video',
-        progress: 70,
-        message: 'Preparing audio track...'
-      })
-
-      const audioData = await fetchFile(audioUrl)
-      await ffmpegInstance.writeFile('audio.mp3', audioData)
-
-      // Create video from slides
-      onProgress?.({
-        stage: 'assembling_video',
-        progress: 75,
-        message: 'Creating video from slides...'
-      })
-
-      // Get resolution settings
-      const { width, height } = this.getResolutionSettings(options.resolution)
-
-      // Create a concat file for FFmpeg
-      let concatContent = ''
-      for (let i = 0; i < slideImages.length; i++) {
-        concatContent += `file 'slide_${i}.png'\n`
-        concatContent += `duration ${slideDuration}\n`
-      }
-      // Add the last slide again for proper duration
-      if (slideImages.length > 0) {
-        concatContent += `file 'slide_${slideImages.length - 1}.png'\n`
-      }
-
-      await ffmpegInstance.writeFile('slides.txt', concatContent)
-
-      // Generate video with slides
-      await ffmpegInstance.exec([
-        '-f', 'concat',
-        '-safe', '0',
-        '-i', 'slides.txt',
-        '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`,
-        '-r', options.fps.toString(),
-        '-pix_fmt', 'yuv420p',
-        'slides_video.mp4'
-      ])
-
-      // Combine video with audio
-      onProgress?.({
-        stage: 'assembling_video',
-        progress: 85,
-        message: 'Combining video with audio...'
-      })
-
-      const outputFormat = options.format === 'webm' ? 'webm' : 'mp4'
-      const codec = options.format === 'webm' ? 'libvpx-vp9' : 'libx264'
-
-      await ffmpegInstance.exec([
-        '-i', 'slides_video.mp4',
-        '-i', 'audio.mp3',
-        '-c:v', codec,
-        '-c:a', options.format === 'webm' ? 'libvorbis' : 'aac',
-        '-shortest', // End when shortest stream ends
-        '-preset', this.getQualityPreset(options.quality),
-        `output.${outputFormat}`
-      ])
-
-      // Read the output file
-      const outputData = await ffmpegInstance.readFile(`output.${outputFormat}`)
+    for (let i = 0; i < slides.length; i++) {
+      const slide = slides[i]
       
-      // Create blob
-      const mimeType = options.format === 'webm' ? 'video/webm' : 'video/mp4'
-      const videoBlob = new Blob([outputData], { type: mimeType })
-
-      // Validate the generated video blob for security
-      const blobValidation = validateBlobContent(videoBlob, mimeType)
-      if (!blobValidation.isValid) {
-        logSecurityEvent('file_validation_failed', {
-          context: 'video_generation',
-          error: blobValidation.error,
-          expectedType: mimeType,
-          actualType: videoBlob.type,
-          size: videoBlob.size
-        })
-        throw new Error(`Generated video failed security validation: ${blobValidation.error}`)
+      try {
+        const imageData = await this.createSlideImage(slide, template, i + 1)
+        images.push(imageData)
+      } catch (error) {
+        console.error(`Failed to create slide ${i + 1} image:`, error)
+        // Create a fallback image
+        const fallbackImage = await this.createFallbackSlideImage(slide, i + 1)
+        images.push(fallbackImage)
       }
-
-      // Cleanup FFmpeg files
-      await this.cleanup()
-
-      return videoBlob
-    } catch (error) {
-      await this.cleanup()
-      throw new Error(`Video assembly failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
+    
+    return images
   }
 
-  private async createSlideImage(slide: any, slideNumber: number, template: string): Promise<string> {
-    // Create canvas-based slide image
+  private async createSlideImage(slide: any, template: string, slideNumber: number): Promise<Uint8Array> {
+    // Create canvas for slide
     const canvas = document.createElement('canvas')
     const ctx = canvas.getContext('2d')!
     
-    // Set canvas dimensions (16:9 aspect ratio)
+    // Set canvas size (1920x1080 for Full HD)
     canvas.width = 1920
     canvas.height = 1080
     
     // Apply template styling
     this.applySlideTemplate(ctx, template, slide, slideNumber)
     
-    // Convert to blob and upload
+    // Convert canvas to image data
     return new Promise((resolve, reject) => {
       canvas.toBlob(async (blob) => {
         if (!blob) {
@@ -357,99 +228,210 @@ export class RealVideoGenerator {
           return
         }
         
-        try {
-          const { publicUrl } = await blink.storage.upload(
-            blob,
-            `slides/slide-${slideNumber}-${Date.now()}.png`,
-            { upsert: true }
-          )
-          resolve(publicUrl)
-        } catch (error) {
-          // Fallback to data URL
-          const dataUrl = canvas.toDataURL('image/png')
-          resolve(dataUrl)
-        }
-      }, 'image/png', 0.9)
+        const arrayBuffer = await blob.arrayBuffer()
+        resolve(new Uint8Array(arrayBuffer))
+      }, 'image/png')
     })
   }
 
   private applySlideTemplate(ctx: CanvasRenderingContext2D, template: string, slide: any, slideNumber: number) {
-    // Clear canvas with background
-    ctx.fillStyle = '#FAFAFA'
+    // Clear canvas
+    ctx.fillStyle = '#FFFFFF'
     ctx.fillRect(0, 0, 1920, 1080)
     
-    // Apply modern template styling
+    // Apply template-specific styling
+    switch (template) {
+      case 'modern-business':
+        this.applyModernBusinessTemplate(ctx, slide, slideNumber)
+        break
+      case 'tech-gradient':
+        this.applyTechGradientTemplate(ctx, slide, slideNumber)
+        break
+      case 'creative-bold':
+        this.applyCreativeBoldTemplate(ctx, slide, slideNumber)
+        break
+      default:
+        this.applyModernBusinessTemplate(ctx, slide, slideNumber)
+    }
+  }
+
+  private applyModernBusinessTemplate(ctx: CanvasRenderingContext2D, slide: any, slideNumber: number) {
+    // Background
+    ctx.fillStyle = '#FFFFFF'
+    ctx.fillRect(0, 0, 1920, 1080)
+    
+    // Header bar
+    ctx.fillStyle = '#1E40AF'
+    ctx.fillRect(0, 0, 1920, 100)
+    
+    // Title
+    ctx.fillStyle = '#1E40AF'
+    ctx.font = 'bold 64px Arial'
+    ctx.textAlign = 'center'
+    ctx.fillText(slide.title || `Slide ${slideNumber}`, 960, 250)
+    
+    // Content
+    if (slide.points && slide.points.length > 0) {
+      ctx.fillStyle = '#333333'
+      ctx.font = '36px Arial'
+      ctx.textAlign = 'left'
+      
+      slide.points.slice(0, 5).forEach((point: string, index: number) => {
+        const y = 350 + (index * 80)
+        ctx.fillText(`• ${point}`, 150, y)
+      })
+    }
+    
+    // Slide number
+    ctx.fillStyle = '#666666'
+    ctx.font = '24px Arial'
+    ctx.textAlign = 'right'
+    ctx.fillText(slideNumber.toString(), 1850, 1050)
+  }
+
+  private applyTechGradientTemplate(ctx: CanvasRenderingContext2D, slide: any, slideNumber: number) {
+    // Gradient background
     const gradient = ctx.createLinearGradient(0, 0, 1920, 1080)
-    gradient.addColorStop(0, '#6366F1')
+    gradient.addColorStop(0, '#0EA5E9')
     gradient.addColorStop(1, '#8B5CF6')
     ctx.fillStyle = gradient
     ctx.fillRect(0, 0, 1920, 1080)
     
     // Title
     ctx.fillStyle = '#FFFFFF'
-    ctx.font = 'bold 72px Arial, sans-serif'
+    ctx.font = 'bold 72px Arial'
     ctx.textAlign = 'center'
-    const title = slide.title || `Slide ${slideNumber}`
-    ctx.fillText(title, 960, 300)
+    ctx.fillText(slide.title || `Slide ${slideNumber}`, 960, 300)
     
     // Content
-    if (slide.content && slide.content.length > 0) {
-      ctx.font = '32px Arial, sans-serif'
+    if (slide.points && slide.points.length > 0) {
       ctx.fillStyle = '#FFFFFF'
+      ctx.font = '32px Arial'
       ctx.textAlign = 'left'
       
-      slide.content.slice(0, 5).forEach((point: string, index: number) => {
-        const y = 500 + (index * 60)
-        ctx.fillText(`• ${point}`, 200, y)
+      slide.points.slice(0, 4).forEach((point: string, index: number) => {
+        const y = 450 + (index * 80)
+        ctx.fillText(`▶ ${point}`, 200, y)
       })
     }
+  }
+
+  private applyCreativeBoldTemplate(ctx: CanvasRenderingContext2D, slide: any, slideNumber: number) {
+    // Background
+    ctx.fillStyle = '#FEFCE8'
+    ctx.fillRect(0, 0, 1920, 1080)
     
-    // Slide number
-    ctx.font = '24px Arial, sans-serif'
-    ctx.fillStyle = '#CBD5E1'
-    ctx.textAlign = 'right'
-    ctx.fillText(`${slideNumber}`, 1820, 1020)
+    // Decorative elements
+    ctx.fillStyle = '#EC4899'
+    ctx.beginPath()
+    ctx.arc(1700, 200, 150, 0, 2 * Math.PI)
+    ctx.fill()
+    
+    // Title
+    ctx.fillStyle = '#EC4899'
+    ctx.font = 'bold 68px Arial'
+    ctx.textAlign = 'left'
+    ctx.fillText(slide.title || `Slide ${slideNumber}`, 100, 300)
+    
+    // Content
+    if (slide.points && slide.points.length > 0) {
+      ctx.fillStyle = '#1F2937'
+      ctx.font = '30px Arial'
+      ctx.textAlign = 'left'
+      
+      slide.points.slice(0, 4).forEach((point: string, index: number) => {
+        const y = 450 + (index * 70)
+        // Creative bullet
+        ctx.fillStyle = '#8B5CF6'
+        ctx.beginPath()
+        ctx.arc(130, y - 15, 12, 0, 2 * Math.PI)
+        ctx.fill()
+        
+        ctx.fillStyle = '#1F2937'
+        ctx.fillText(point, 170, y)
+      })
+    }
   }
 
-  private async createFallbackSlideImage(slide: any, slideNumber: number): Promise<string> {
-    const title = encodeURIComponent(slide.title || `Slide ${slideNumber}`)
-    return `https://via.placeholder.com/1920x1080/6366F1/FFFFFF?text=${title}`
+  private async createFallbackSlideImage(slide: any, slideNumber: number): Promise<Uint8Array> {
+    // Create a simple fallback image
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d')!
+    
+    canvas.width = 1920
+    canvas.height = 1080
+    
+    // Simple design
+    ctx.fillStyle = '#F3F4F6'
+    ctx.fillRect(0, 0, 1920, 1080)
+    
+    ctx.fillStyle = '#1F2937'
+    ctx.font = 'bold 48px Arial'
+    ctx.textAlign = 'center'
+    ctx.fillText(slide.title || `Slide ${slideNumber}`, 960, 540)
+    
+    return new Promise((resolve, reject) => {
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          reject(new Error('Failed to create fallback slide image'))
+          return
+        }
+        
+        const arrayBuffer = await blob.arrayBuffer()
+        resolve(new Uint8Array(arrayBuffer))
+      }, 'image/png')
+    })
   }
 
-  private splitScript(script: string, maxChunkSize: number): string[] {
-    const chunks: string[] = []
-    const sentences = script.split(/[.!?]+/)
-    let currentChunk = ''
+  private async assembleVideoWithFFmpeg(
+    slideImages: Uint8Array[],
+    audioFile: Uint8Array,
+    options: RealVideoOptions
+  ): Promise<Blob> {
+    if (!this.ffmpeg) {
+      throw new Error('FFmpeg not initialized')
+    }
 
-    for (const sentence of sentences) {
-      if (currentChunk.length + sentence.length > maxChunkSize && currentChunk.length > 0) {
-        chunks.push(currentChunk.trim())
-        currentChunk = sentence
-      } else {
-        currentChunk += sentence + '.'
+    try {
+      // Write audio file
+      await this.ffmpeg.writeFile('audio.mp3', audioFile)
+      
+      // Write slide images
+      for (let i = 0; i < slideImages.length; i++) {
+        await this.ffmpeg.writeFile(`slide_${i.toString().padStart(3, '0')}.png`, slideImages[i])
       }
+      
+      // Create video from images
+      const fps = options.fps || 30
+      const resolution = this.getResolutionDimensions(options.resolution)
+      
+      // FFmpeg command to create video from images
+      await this.ffmpeg.exec([
+        '-framerate', '1/3', // 3 seconds per image
+        '-i', 'slide_%03d.png',
+        '-i', 'audio.mp3',
+        '-c:v', 'libx264',
+        '-r', fps.toString(),
+        '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac',
+        '-shortest',
+        '-s', `${resolution.width}x${resolution.height}`,
+        'output.mp4'
+      ])
+      
+      // Read the output file
+      const data = await this.ffmpeg.readFile('output.mp4')
+      
+      // Clean up temporary files
+      await this.cleanupTempFiles(slideImages.length)
+      
+      return new Blob([data], { type: 'video/mp4' })
+    } catch (error) {
+      throw new Error(`Video assembly failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
-
-    if (currentChunk.trim()) {
-      chunks.push(currentChunk.trim())
-    }
-
-    return chunks
   }
 
-  private mapVoiceStyle(voiceStyle: string): string {
-    const voiceMap: Record<string, string> = {
-      'professional-male': 'onyx',
-      'professional-female': 'nova',
-      'enthusiastic-male': 'echo',
-      'enthusiastic-female': 'shimmer',
-      'calm-male': 'fable',
-      'calm-female': 'alloy'
-    }
-    return voiceMap[voiceStyle] || 'nova'
-  }
-
-  private getResolutionSettings(resolution: string): { width: number; height: number } {
+  private getResolutionDimensions(resolution: string): { width: number; height: number } {
     switch (resolution) {
       case '720p':
         return { width: 1280, height: 720 }
@@ -462,33 +444,44 @@ export class RealVideoGenerator {
     }
   }
 
-  private getQualityPreset(quality: string): string {
-    switch (quality) {
-      case 'low':
-        return 'ultrafast'
-      case 'medium':
-        return 'medium'
-      case 'high':
-        return 'slow'
-      default:
-        return 'medium'
+  private async cleanupTempFiles(slideCount: number) {
+    try {
+      // Remove temporary files
+      await this.ffmpeg.deleteFile('audio.mp3')
+      
+      for (let i = 0; i < slideCount; i++) {
+        await this.ffmpeg.deleteFile(`slide_${i.toString().padStart(3, '0')}.png`)
+      }
+      
+      await this.ffmpeg.deleteFile('output.mp4')
+    } catch (error) {
+      console.warn('Failed to cleanup temporary files:', error)
     }
   }
 
-  private async cleanup(): Promise<void> {
-    const ffmpegInstance = this.ffmpeg
-    if (!ffmpegInstance) return
-
+  private async uploadVideo(videoBlob: Blob, topic: string): Promise<string> {
     try {
-      // List and remove all files
-      const files = await ffmpegInstance.listDir('/')
-      for (const file of files) {
-        if (file.isFile) {
-          await ffmpegInstance.deleteFile(file.name)
-        }
+      if (!blink?.storage) {
+        throw new Error('Storage service not available')
       }
+
+      const filename = `webinar_${topic.replace(/\\s+/g, '_').toLowerCase()}_${Date.now()}.mp4`
+      const { publicUrl } = await blink.storage.upload(videoBlob, `videos/${filename}`, { upsert: true })
+      
+      return publicUrl
     } catch (error) {
-      console.warn('Cleanup warning:', error)
+      throw new Error(`Video upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  private updateProgress(
+    onProgress: ((progress: VideoGenerationProgress) => void) | undefined,
+    stage: VideoGenerationProgress['stage'],
+    progress: number,
+    message: string
+  ) {
+    if (onProgress) {
+      onProgress({ stage, progress, message })
     }
   }
 }

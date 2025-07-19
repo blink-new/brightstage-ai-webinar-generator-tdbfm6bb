@@ -1,211 +1,242 @@
 import { useState, useEffect } from 'react'
 
-interface MobilePerformanceConfig {
+export interface MobilePerformanceConfig {
   isMobile: boolean
   isLowEndDevice: boolean
-  maxChunkSize: number
-  maxResolution: '720p' | '1080p' | '4k'
-  enableFallbacks: boolean
-  memoryLimit: number // MB
-}
-
-interface DeviceCapabilities {
-  memory?: number // GB
-  cores?: number
-  gpu?: string
-  userAgent: string
+  memoryLimit: number
+  maxResolution: string
+  recommendedQuality: 'low' | 'medium' | 'high'
+  canHandleVideoGeneration: boolean
+  deviceMemory?: number
+  hardwareConcurrency?: number
+  connectionType?: string
 }
 
 export function useMobilePerformance(): MobilePerformanceConfig {
   const [config, setConfig] = useState<MobilePerformanceConfig>({
     isMobile: false,
     isLowEndDevice: false,
-    maxChunkSize: 1000,
+    memoryLimit: 2048,
     maxResolution: '1080p',
-    enableFallbacks: false,
-    memoryLimit: 512
+    recommendedQuality: 'high',
+    canHandleVideoGeneration: true
   })
 
   useEffect(() => {
-    const detectDeviceCapabilities = (): DeviceCapabilities => {
-      const nav = navigator as any
-      return {
-        memory: nav.deviceMemory, // GB
-        cores: nav.hardwareConcurrency,
-        gpu: getGPUInfo(),
-        userAgent: nav.userAgent
+    const detectMobilePerformance = () => {
+      // Detect mobile device
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+                       window.innerWidth <= 768
+
+      // Get device memory if available
+      const deviceMemory = (navigator as any).deviceMemory || 4
+      
+      // Get hardware concurrency (CPU cores)
+      const hardwareConcurrency = navigator.hardwareConcurrency || 4
+      
+      // Get connection type if available
+      const connection = (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection
+      const connectionType = connection?.effectiveType || 'unknown'
+      
+      // Determine if it's a low-end device
+      const isLowEndDevice = (
+        deviceMemory <= 2 ||
+        hardwareConcurrency <= 2 ||
+        connectionType === 'slow-2g' ||
+        connectionType === '2g'
+      )
+      
+      // Set memory limits based on device capabilities
+      let memoryLimit: number
+      if (isLowEndDevice) {
+        memoryLimit = 512 // 512MB for low-end devices
+      } else if (isMobile) {
+        memoryLimit = 1024 // 1GB for mobile devices
+      } else {
+        memoryLimit = 2048 // 2GB for desktop
       }
-    }
-
-    const getGPUInfo = (): string => {
-      try {
-        const canvas = document.createElement('canvas')
-        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl')
-        if (gl) {
-          const debugInfo = gl.getExtension('WEBGL_debug_renderer_info')
-          if (debugInfo) {
-            return gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || 'Unknown'
-          }
-        }
-      } catch (error) {
-        console.warn('Could not detect GPU info:', error)
+      
+      // Determine max resolution
+      let maxResolution: string
+      if (isLowEndDevice) {
+        maxResolution = '720p'
+      } else if (isMobile) {
+        maxResolution = '1080p'
+      } else {
+        maxResolution = '4k'
       }
-      return 'Unknown'
-    }
-
-    const isMobileDevice = (): boolean => {
-      // Check multiple indicators for mobile
-      const userAgent = navigator.userAgent.toLowerCase()
-      const mobileKeywords = ['mobile', 'android', 'iphone', 'ipad', 'ipod', 'blackberry', 'windows phone']
-      const hasMobileKeyword = mobileKeywords.some(keyword => userAgent.includes(keyword))
       
-      // Check screen size
-      const isSmallScreen = window.innerWidth <= 768 || window.innerHeight <= 768
-      
-      // Check touch capability
-      const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0
-      
-      return hasMobileKeyword || (isSmallScreen && hasTouch)
-    }
-
-    const isLowEndDevice = (capabilities: DeviceCapabilities): boolean => {
-      // Detect low-end devices based on multiple factors
-      const lowMemory = capabilities.memory && capabilities.memory <= 2 // 2GB or less
-      const fewCores = capabilities.cores && capabilities.cores <= 2 // 2 cores or less
-      const oldDevice = isOldDevice(capabilities.userAgent)
-      const integratedGPU = isIntegratedGPU(capabilities.gpu)
-      
-      return !!(lowMemory || fewCores || oldDevice || integratedGPU)
-    }
-
-    const isOldDevice = (userAgent: string): boolean => {
-      // Check for older iOS/Android versions
-      const iosMatch = userAgent.match(/OS (\d+)_/)
-      if (iosMatch && parseInt(iosMatch[1]) < 13) return true // iOS < 13
-      
-      const androidMatch = userAgent.match(/Android (\d+)/)
-      if (androidMatch && parseInt(androidMatch[1]) < 8) return true // Android < 8
-      
-      return false
-    }
-
-    const isIntegratedGPU = (gpu: string): boolean => {
-      const integratedKeywords = ['intel', 'integrated', 'mali', 'adreno 3', 'adreno 4']
-      return integratedKeywords.some(keyword => gpu.toLowerCase().includes(keyword))
-    }
-
-    const calculateOptimalSettings = (
-      isMobile: boolean, 
-      isLowEnd: boolean, 
-      capabilities: DeviceCapabilities
-    ): MobilePerformanceConfig => {
-      if (isLowEnd || isMobile) {
-        return {
-          isMobile,
-          isLowEndDevice: isLowEnd,
-          maxChunkSize: isLowEnd ? 200 : 500, // Smaller chunks for low-end devices
-          maxResolution: isLowEnd ? '720p' : '1080p', // Limit resolution
-          enableFallbacks: true,
-          memoryLimit: isLowEnd ? 256 : 512 // MB
-        }
+      // Determine recommended quality
+      let recommendedQuality: 'low' | 'medium' | 'high'
+      if (isLowEndDevice) {
+        recommendedQuality = 'low'
+      } else if (isMobile) {
+        recommendedQuality = 'medium'
+      } else {
+        recommendedQuality = 'high'
       }
-
-      // Desktop/high-end device settings
-      return {
-        isMobile: false,
-        isLowEndDevice: false,
-        maxChunkSize: 1000,
-        maxResolution: '4k',
-        enableFallbacks: false,
-        memoryLimit: 1024
-      }
+      
+      // Determine if device can handle video generation
+      const canHandleVideoGeneration = (
+        deviceMemory >= 2 &&
+        hardwareConcurrency >= 2 &&
+        connectionType !== 'slow-2g' &&
+        connectionType !== '2g'
+      )
+      
+      setConfig({
+        isMobile,
+        isLowEndDevice,
+        memoryLimit,
+        maxResolution,
+        recommendedQuality,
+        canHandleVideoGeneration,
+        deviceMemory,
+        hardwareConcurrency,
+        connectionType
+      })
     }
 
-    // Detect device capabilities
-    const capabilities = detectDeviceCapabilities()
-    const isMobile = isMobileDevice()
-    const isLowEnd = isLowEndDevice(capabilities)
+    detectMobilePerformance()
     
-    console.log('Device capabilities detected:', {
-      isMobile,
-      isLowEnd,
-      memory: capabilities.memory,
-      cores: capabilities.cores,
-      gpu: capabilities.gpu
-    })
-
-    const optimalConfig = calculateOptimalSettings(isMobile, isLowEnd, capabilities)
-    setConfig(optimalConfig)
-
-    // Listen for orientation/resize changes on mobile
-    if (isMobile) {
-      const handleResize = () => {
-        // Re-evaluate on orientation change
-        const newIsMobile = isMobileDevice()
-        if (newIsMobile !== optimalConfig.isMobile) {
-          const newConfig = calculateOptimalSettings(newIsMobile, isLowEnd, capabilities)
-          setConfig(newConfig)
-        }
-      }
-
-      window.addEventListener('resize', handleResize)
-      window.addEventListener('orientationchange', handleResize)
-
-      return () => {
-        window.removeEventListener('resize', handleResize)
-        window.removeEventListener('orientationchange', handleResize)
-      }
+    // Re-detect on window resize
+    window.addEventListener('resize', detectMobilePerformance)
+    
+    return () => {
+      window.removeEventListener('resize', detectMobilePerformance)
     }
-  }, []) // Empty dependency array is correct here as we want this to run only once
+  }, [])
 
   return config
 }
 
-// Utility functions for performance optimization
+// Performance utilities
 export const performanceUtils = {
-  // Check if device can handle video generation
-  canHandleVideoGeneration: (config: MobilePerformanceConfig): boolean => {
-    if (config.isLowEndDevice) {
-      // Low-end devices should use server-side generation
-      return false
-    }
-    return true
-  },
-
-  // Get recommended video settings for device
-  getRecommendedVideoSettings: (config: MobilePerformanceConfig) => {
+  /**
+   * Get recommended video settings based on device capabilities
+   */
+  getRecommendedVideoSettings(config: MobilePerformanceConfig) {
     return {
-      quality: config.isLowEndDevice ? 'low' : config.isMobile ? 'medium' : 'high',
+      quality: config.recommendedQuality,
       resolution: config.maxResolution,
-      chunkSize: config.maxChunkSize,
-      enableHardwareAcceleration: !config.isLowEndDevice,
-      maxConcurrentOperations: config.isLowEndDevice ? 1 : config.isMobile ? 2 : 4
+      fps: config.isLowEndDevice ? 24 : 30,
+      bitrate: config.isLowEndDevice ? 'low' : config.isMobile ? 'medium' : 'high'
     }
   },
 
-  // Monitor memory usage during video generation
-  monitorMemoryUsage: (): { used: number; limit: number; percentage: number } => {
-    const nav = navigator as any
-    if (nav.memory) {
-      return {
-        used: nav.memory.usedJSHeapSize / 1024 / 1024, // MB
-        limit: nav.memory.jsHeapSizeLimit / 1024 / 1024, // MB
-        percentage: (nav.memory.usedJSHeapSize / nav.memory.jsHeapSizeLimit) * 100
+  /**
+   * Check if device can handle video generation
+   */
+  canHandleVideoGeneration(config: MobilePerformanceConfig): boolean {
+    return config.canHandleVideoGeneration
+  },
+
+  /**
+   * Monitor memory usage
+   */
+  monitorMemoryUsage(): { used: number; total: number; percentage: number } {
+    try {
+      const memory = (performance as any).memory
+      if (memory) {
+        const used = memory.usedJSHeapSize / 1024 / 1024 // MB
+        const total = memory.totalJSHeapSize / 1024 / 1024 // MB
+        const percentage = (used / total) * 100
+        
+        return { used, total, percentage }
       }
+    } catch (_error) {
+      console.warn('Memory monitoring not available:', _error)
     }
-    return { used: 0, limit: 0, percentage: 0 }
+    
+    return { used: 0, total: 0, percentage: 0 }
   },
 
-  // Check if device should fallback to server-side generation
-  shouldUseServerSideGeneration: (config: MobilePerformanceConfig): boolean => {
-    const memoryUsage = performanceUtils.monitorMemoryUsage()
+  /**
+   * Optimize settings for current device
+   */
+  optimizeForDevice(config: MobilePerformanceConfig) {
+    const optimizations = {
+      chunkSize: config.isLowEndDevice ? 1 : config.isMobile ? 2 : 3,
+      delayBetweenChunks: config.isLowEndDevice ? 100 : config.isMobile ? 50 : 10,
+      maxConcurrentOperations: config.isLowEndDevice ? 1 : config.isMobile ? 2 : 4,
+      enableProgressiveLoading: config.isMobile,
+      enableImageOptimization: config.isLowEndDevice || config.isMobile,
+      maxImageSize: config.isLowEndDevice ? 512 : config.isMobile ? 1024 : 2048
+    }
     
-    // Use server-side if:
-    // 1. Low-end device
-    // 2. High memory usage (>80%)
-    // 3. Mobile with limited memory
-    return config.isLowEndDevice || 
-           memoryUsage.percentage > 80 || 
-           (config.isMobile && memoryUsage.limit < 512)
+    return optimizations
+  },
+
+  /**
+   * Check if operation should be throttled
+   */
+  shouldThrottle(config: MobilePerformanceConfig, operationType: string): boolean {
+    const memoryUsage = this.monitorMemoryUsage()
+    
+    // Throttle if memory usage is high
+    if (memoryUsage.percentage > 80) {
+      return true
+    }
+    
+    // Throttle heavy operations on low-end devices
+    if (config.isLowEndDevice && ['video-generation', 'image-processing'].includes(operationType)) {
+      return true
+    }
+    
+    // Throttle on slow connections
+    if (config.connectionType === 'slow-2g' || config.connectionType === '2g') {
+      return true
+    }
+    
+    return false
+  },
+
+  /**
+   * Get optimal batch size for operations
+   */
+  getOptimalBatchSize(config: MobilePerformanceConfig, operationType: string): number {
+    const baseSizes = {
+      'slide-generation': 5,
+      'image-processing': 3,
+      'video-processing': 1,
+      'text-generation': 10
+    }
+    
+    const baseSize = baseSizes[operationType as keyof typeof baseSizes] || 3
+    
+    if (config.isLowEndDevice) {
+      return Math.max(1, Math.floor(baseSize / 3))
+    } else if (config.isMobile) {
+      return Math.max(1, Math.floor(baseSize / 2))
+    }
+    
+    return baseSize
+  },
+
+  /**
+   * Estimate processing time based on device capabilities
+   */
+  estimateProcessingTime(
+    config: MobilePerformanceConfig,
+    operationType: string,
+    complexity: number
+  ): number {
+    const baseTimeMultipliers = {
+      'slide-generation': 1,
+      'video-generation': 10,
+      'image-processing': 2,
+      'text-generation': 0.5
+    }
+    
+    const baseTime = baseTimeMultipliers[operationType as keyof typeof baseTimeMultipliers] || 1
+    
+    let deviceMultiplier = 1
+    if (config.isLowEndDevice) {
+      deviceMultiplier = 3
+    } else if (config.isMobile) {
+      deviceMultiplier = 2
+    }
+    
+    return baseTime * complexity * deviceMultiplier
   }
 }
