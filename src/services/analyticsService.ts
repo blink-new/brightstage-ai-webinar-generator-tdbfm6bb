@@ -10,6 +10,9 @@ interface AnalyticsEvent {
 class AnalyticsService {
   private sessionId: string
   private userId: string | null = null
+  private isEnabled: boolean = true
+  private eventQueue: AnalyticsEvent[] = []
+  private flushTimeout: NodeJS.Timeout | null = null
 
   constructor() {
     this.sessionId = this.generateSessionId()
@@ -22,24 +25,49 @@ class AnalyticsService {
 
   private async initializeSession() {
     try {
-      // Track session start
-      await this.track('session_start', {
-        timestamp: new Date().toISOString(),
-        userAgent: navigator.userAgent,
-        url: window.location.href,
-        referrer: document.referrer
-      })
+      // Only track session start if analytics is enabled
+      if (this.isEnabled) {
+        await this.track('session_start', {
+          timestamp: new Date().toISOString(),
+          userAgent: navigator.userAgent,
+          url: window.location.href,
+          referrer: document.referrer
+        })
+      }
     } catch (error) {
       console.warn('Failed to initialize analytics session:', error)
+      // Disable analytics if initialization fails
+      this.isEnabled = false
     }
   }
 
   setUserId(userId: string) {
     this.userId = userId
-    this.track('user_identified', { userId })
+    if (this.isEnabled) {
+      this.track('user_identified', { userId }).catch(() => {
+        // Silently fail if analytics tracking fails
+      })
+    }
+  }
+
+  disable() {
+    this.isEnabled = false
+    this.eventQueue = []
+    if (this.flushTimeout) {
+      clearTimeout(this.flushTimeout)
+      this.flushTimeout = null
+    }
+  }
+
+  enable() {
+    this.isEnabled = true
   }
 
   async track(eventType: string, eventData: Record<string, any> = {}) {
+    if (!this.isEnabled) {
+      return // Silently skip if analytics is disabled
+    }
+
     try {
       const event: AnalyticsEvent = {
         eventType,
@@ -53,22 +81,57 @@ class AnalyticsService {
         sessionId: this.sessionId
       }
 
-      // Store in Supabase
-      await blink.db.usageAnalytics.create({
-        id: `analytics_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        userId: this.userId,
-        eventType,
-        eventData: event.eventData,
-        sessionId: this.sessionId,
-        userAgent: navigator.userAgent
-      })
+      // Add to queue for batch processing
+      this.eventQueue.push(event)
 
-      // Also log to console in development
+      // Log to console in development
       if (process.env.NODE_ENV === 'development') {
         console.log('Analytics Event:', event)
       }
+
+      // Schedule flush if not already scheduled
+      if (!this.flushTimeout) {
+        this.flushTimeout = setTimeout(() => {
+          this.flush()
+        }, 1000) // Batch events for 1 second
+      }
+
     } catch (error) {
       console.warn('Failed to track analytics event:', error)
+      // Don't throw error to prevent breaking the app
+    }
+  }
+
+  private async flush() {
+    if (!this.isEnabled || this.eventQueue.length === 0) {
+      return
+    }
+
+    const eventsToSend = [...this.eventQueue]
+    this.eventQueue = []
+    this.flushTimeout = null
+
+    try {
+      // Try to use Blink SDK analytics if available
+      if (blink?.analytics?.log) {
+        for (const event of eventsToSend) {
+          try {
+            await blink.analytics.log(event.eventType, event.eventData)
+          } catch (error) {
+            console.warn('Failed to send analytics event via Blink SDK:', error)
+            // If Blink analytics fails, disable it to prevent future errors
+            this.isEnabled = false
+            break
+          }
+        }
+      } else {
+        // Fallback: just log to console
+        console.log('Analytics events (Blink SDK not available):', eventsToSend)
+      }
+    } catch (error) {
+      console.warn('Failed to flush analytics events:', error)
+      // Disable analytics on persistent failures
+      this.isEnabled = false
     }
   }
 

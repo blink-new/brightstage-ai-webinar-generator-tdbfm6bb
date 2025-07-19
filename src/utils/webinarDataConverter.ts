@@ -1,15 +1,15 @@
 import type { WebinarData, WebinarProject } from '../types/webinar'
 
 export class WebinarDataConverter {
-  static toProject(webinarData: WebinarData, userId: string): Partial<WebinarProject> {
+  static toProject(webinarData: WebinarData & { title?: string }, userId: string): Partial<WebinarProject> {
     return {
       userId,
       title: webinarData.title || webinarData.topic || 'Untitled Webinar',
-      topic: webinarData.topic,
-      targetAudience: webinarData.audience,
-      durationMinutes: webinarData.duration,
-      description: webinarData.description,
-      aiTool: webinarData.aiTool,
+      topic: webinarData.topic || '',
+      targetAudience: webinarData.audience || '',
+      durationMinutes: webinarData.duration || 60,
+      description: webinarData.description || '',
+      aiTool: webinarData.aiTool || 'openai',
       outline: webinarData.outline,
       template: webinarData.template,
       slides: webinarData.slides,
@@ -21,13 +21,13 @@ export class WebinarDataConverter {
     }
   }
 
-  static fromProject(project: WebinarProject): WebinarData {
+  static fromProject(project: WebinarProject): WebinarData & { title?: string } {
     return {
-      topic: project.topic,
-      audience: project.targetAudience,
-      duration: project.durationMinutes,
-      description: project.description,
-      aiTool: project.aiTool,
+      topic: project.topic || '',
+      audience: project.targetAudience || '',
+      duration: project.durationMinutes || 60,
+      description: project.description || '',
+      aiTool: project.aiTool || 'openai',
       title: project.title,
       outline: project.outline,
       template: project.template,
@@ -40,7 +40,7 @@ export class WebinarDataConverter {
     }
   }
 
-  static merge(existing: WebinarData, updates: Partial<WebinarData>): WebinarData {
+  static merge(existing: WebinarData & { title?: string }, updates: Partial<WebinarData & { title?: string }>): WebinarData & { title?: string } {
     return {
       ...existing,
       ...updates

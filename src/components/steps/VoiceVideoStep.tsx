@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Mic, Video, Play, Pause, ArrowLeft, ArrowRight, Loader2, Volume2, Settings, Download, Smartphone, AlertTriangle } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'
@@ -38,16 +38,30 @@ const ttsProviders = [
 ]
 
 export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoStepProps) {
+  // ALL HOOKS MUST BE CALLED UNCONDITIONALLY AT TOP LEVEL
   const [isGeneratingScript, setIsGeneratingScript] = useState(false)
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false)
   const [videoProgress, setVideoProgress] = useState<VideoGenerationProgress | null>(null)
-  const [selectedVoice, setSelectedVoice] = useState(data.voiceStyle || 'professional-female')
-  const [selectedTTS, setSelectedTTS] = useState(data.ttsProvider || 'elevenlabs')
-  const [script, setScript] = useState(data.script || '')
+  const [selectedVoice, setSelectedVoice] = useState('professional-female')
+  const [selectedTTS, setSelectedTTS] = useState('elevenlabs')
+  const [script, setScript] = useState('')
   const [previewAudio, setPreviewAudio] = useState<string | null>(null)
   
-  // Mobile performance optimization
+  // Mobile performance optimization - called unconditionally
   const mobileConfig = useMobilePerformance()
+  const { toast } = useToast()
+  
+  // Safe access to data with fallbacks
+  const webinarData = data || {}
+  const title = webinarData.topic || 'Untitled Webinar'
+  
+  // Initialize state from data safely after hooks
+  useEffect(() => {
+    if (webinarData.voiceStyle) setSelectedVoice(webinarData.voiceStyle)
+    if (webinarData.ttsProvider) setSelectedTTS(webinarData.ttsProvider)
+    if (webinarData.script) setScript(webinarData.script)
+  }, [webinarData.voiceStyle, webinarData.ttsProvider, webinarData.script])
+  
   const recommendedSettings = performanceUtils.getRecommendedVideoSettings(mobileConfig)
   
   const [videoOptions, setVideoOptions] = useState<VideoGenerationOptions>({
@@ -56,10 +70,9 @@ export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoSte
     resolution: recommendedSettings.resolution,
     includeAvatar: false
   })
-  const { toast } = useToast()
 
   const handleGenerateScript = async () => {
-    if (!data.slides || data.slides.length === 0) {
+    if (!webinarData.slides || webinarData.slides.length === 0) {
       toast({
         title: 'No slides available',
         description: 'Please complete the slide design step first.',
@@ -81,14 +94,14 @@ export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoSte
     try {
       // Use Promise.resolve to move JSON.stringify to microtask queue to prevent blocking
       const slidesData = await Promise.resolve().then(() => 
-        JSON.stringify(data.slides, null, 2)
+        JSON.stringify(webinarData.slides, null, 2)
       )
       
       const prompt = `Create a natural, conversational narration script for this webinar presentation:
 
-        Topic: ${data.topic}
-        Audience: ${data.audience}
-        Duration: ${data.duration} minutes
+        Topic: ${webinarData.topic}
+        Audience: ${webinarData.audience}
+        Duration: ${webinarData.duration} minutes
         Voice Style: ${selectedVoice}
 
         Slides:
@@ -215,7 +228,7 @@ export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoSte
       return
     }
 
-    if (!data.slides || data.slides.length === 0) {
+    if (!webinarData.slides || webinarData.slides.length === 0) {
       toast({
         title: 'No slides available',
         description: 'Please complete the slide design step first.',
@@ -224,7 +237,7 @@ export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoSte
       return
     }
 
-    if (data.slides.length > 50) {
+    if (webinarData.slides.length > 50) {
       toast({
         title: 'Too many slides',
         description: 'Video generation supports up to 50 slides. Please reduce your slide count.',
@@ -248,7 +261,7 @@ export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoSte
     try {
       // Update data with current voice settings
       const updatedData = {
-        ...data,
+        ...webinarData,
         script,
         voiceStyle: selectedVoice,
         ttsProvider: selectedTTS
@@ -287,7 +300,7 @@ export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoSte
         url: result.url,
         duration: result.duration,
         size: result.size,
-        slides: data.slides.length,
+        slides: webinarData.slides.length,
         scriptLength: script.length
       })
 
@@ -320,8 +333,74 @@ export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoSte
     }
   }
 
+  const handleDownload = async () => {
+    const videoUrl = webinarData.videoUrl
+    if (!videoUrl) {
+      toast({
+        title: 'Video not ready',
+        description: 'Video is not available for download.',
+        variant: 'destructive'
+      })
+      return
+    }
+    
+    try {
+      // Use requestAnimationFrame to prevent UI blocking
+      await new Promise(resolve => requestAnimationFrame(resolve))
+      
+      const filename = `${title.replace(/\s+/g, '_')}_webinar.mp4`
+      
+      // Create secure download link with validation
+      const secureDownload = createSecureDownloadLink(
+        videoUrl,
+        filename,
+        'video/mp4'
+      )
+      
+      if (!secureDownload.success) {
+        logSecurityEvent('invalid_url', {
+          context: 'video_download',
+          url: videoUrl,
+          error: secureDownload.error
+        })
+        throw new Error(secureDownload.error)
+      }
+      
+      // Add to DOM and trigger download asynchronously
+      document.body.appendChild(secureDownload.element!)
+      
+      // Use setTimeout to ensure DOM update completes
+      setTimeout(() => {
+        secureDownload.element!.click()
+        setTimeout(() => {
+          if (document.body.contains(secureDownload.element!)) {
+            document.body.removeChild(secureDownload.element!)
+          }
+        }, 100)
+      }, 0)
+      
+      toast({
+        title: 'Download started',
+        description: 'Your webinar video download has begun.'
+      })
+      
+    } catch (error) {
+      console.error('Download failed:', error)
+      logSecurityEvent('file_validation_failed', {
+        context: 'video_download_failed',
+        url: videoUrl,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      })
+      toast({
+        title: 'Download failed',
+        description: 'Unable to download video securely. Please try again.',
+        variant: 'destructive'
+      })
+    }
+  }
+
   const hasScript = script.length > 0
-  const hasVideo = !!data.videoUrl
+  const hasVideo = !!webinarData.videoUrl
 
   return (
     <div className="space-y-8">
@@ -616,17 +695,17 @@ export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoSte
             </CardHeader>
             <CardContent>
               <div className="aspect-video bg-black rounded-lg overflow-hidden mb-4">
-                {data.videoUrl ? (
+                {webinarData.videoUrl ? (
                   <video 
-                    key={data.videoUrl}
+                    key={webinarData.videoUrl}
                     controls 
                     className="w-full h-full"
                     poster="https://via.placeholder.com/1920x1080/6366F1/FFFFFF?text=Webinar+Video"
                     preload="metadata"
-                    aria-label={`Webinar video: ${data.topic || 'Generated webinar'}, duration approximately ${data.duration} minutes`}
+                    aria-label={`Webinar video: ${title}, duration approximately ${webinarData.duration} minutes`}
                     aria-describedby="video-description"
                   >
-                    <source src={data.videoUrl} type="video/mp4" />
+                    <source src={webinarData.videoUrl} type="video/mp4" />
                     <track kind="captions" src="" label="English captions" default />
                     Your browser doesn't support video playback. You can download the video using the download button below.
                   </video>
@@ -641,7 +720,7 @@ export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoSte
                       <Video className="h-12 w-12 mx-auto mb-2" aria-hidden="true" />
                       <p className="text-sm">Video preview loading...</p>
                       <p className="text-xs mt-1 text-gray-300">
-                        Duration: ~{data.duration} minutes
+                        Duration: ~{webinarData.duration} minutes
                       </p>
                     </div>
                   </div>
@@ -650,20 +729,20 @@ export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoSte
               
               {/* Hidden description for screen readers */}
               <div id="video-description" className="sr-only">
-                This is a generated webinar video about {data.topic || 'the selected topic'} 
-                for {data.audience || 'the target audience'}. 
-                The video contains {data.slides?.length || 0} slides and has a duration of approximately {data.duration} minutes.
+                This is a generated webinar video about {title} 
+                for {webinarData.audience || 'the target audience'}. 
+                The video contains {webinarData.slides?.length || 0} slides and has a duration of approximately {webinarData.duration} minutes.
                 Use the video controls to play, pause, adjust volume, or enter fullscreen mode.
               </div>
               
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
                 <div className="text-center p-2 bg-muted rounded">
                   <p className="text-xs text-muted-foreground">Duration</p>
-                  <p className="font-medium">{data.duration} min</p>
+                  <p className="font-medium">{webinarData.duration} min</p>
                 </div>
                 <div className="text-center p-2 bg-muted rounded">
                   <p className="text-xs text-muted-foreground">Slides</p>
-                  <p className="font-medium">{data.slides?.length || 0}</p>
+                  <p className="font-medium">{webinarData.slides?.length || 0}</p>
                 </div>
                 <div className="text-center p-2 bg-muted rounded">
                   <p className="text-xs text-muted-foreground">Quality</p>
@@ -726,64 +805,8 @@ export function VoiceVideoStep({ data, onUpdate, onNext, onPrev }: VoiceVideoSte
                 </Button>
                 <Button 
                   variant="outline"
-                  onClick={async () => {
-                    if (data.videoUrl) {
-                      try {
-                        // Use requestAnimationFrame to prevent UI blocking
-                        await new Promise(resolve => requestAnimationFrame(resolve))
-                        
-                        const filename = `${(data.topic || 'webinar').replace(/\s+/g, '_')}_webinar.mp4`
-                        
-                        // Create secure download link with validation
-                        const secureDownload = createSecureDownloadLink(
-                          data.videoUrl,
-                          filename,
-                          'video/mp4'
-                        )
-                        
-                        if (!secureDownload.success) {
-                          logSecurityEvent('invalid_url', {
-                            context: 'video_download',
-                            url: data.videoUrl,
-                            error: secureDownload.error
-                          })
-                          throw new Error(secureDownload.error)
-                        }
-                        
-                        // Add to DOM and trigger download asynchronously
-                        document.body.appendChild(secureDownload.element!)
-                        
-                        // Use setTimeout to ensure DOM update completes
-                        setTimeout(() => {
-                          secureDownload.element!.click()
-                          setTimeout(() => {
-                            if (document.body.contains(secureDownload.element!)) {
-                              document.body.removeChild(secureDownload.element!)
-                            }
-                          }, 100)
-                        }, 0)
-                        
-                        toast({
-                          title: 'Download started',
-                          description: 'Your webinar video download has begun.'
-                        })
-                        
-                      } catch (error) {
-                        console.error('Download failed:', error)
-                        logSecurityEvent('file_validation_failed', {
-                          context: 'video_download_failed',
-                          url: data.videoUrl,
-                          error: error instanceof Error ? error.message : 'Unknown error'
-                        })
-                        toast({
-                          title: 'Download failed',
-                          description: 'Unable to download video securely. Please try again.',
-                          variant: 'destructive'
-                        })
-                      }
-                    }
-                  }}
-                  aria-label={`Download webinar video file: ${(data.topic || 'webinar').replace(/\s+/g, '_')}_webinar.mp4`}
+                  onClick={handleDownload}
+                  aria-label={`Download webinar video file: ${title.replace(/\s+/g, '_')}_webinar.mp4`}
                 >
                   <Download className="h-4 w-4 mr-2" aria-hidden="true" />
                   Download Video

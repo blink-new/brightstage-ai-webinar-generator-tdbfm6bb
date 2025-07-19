@@ -29,6 +29,7 @@ export interface WebinarData {
   duration: number
   description: string
   aiTool: string
+  title?: string
   outline?: any
   template?: string
   slides?: any[]
@@ -37,6 +38,7 @@ export interface WebinarData {
   script?: string
   videoUrl?: string
   pitchVideoUrl?: string
+  exportUrls?: any
 }
 
 const steps = [
@@ -47,6 +49,7 @@ const steps = [
 ]
 
 function WebinarCreator({ user, onBack, editingWebinarId }: WebinarCreatorProps) {
+  // ALL HOOKS MUST BE CALLED UNCONDITIONALLY AT TOP LEVEL
   const [currentStep, setCurrentStep] = useState(1)
   const [webinarData, setWebinarData] = useState<WebinarData>({
     topic: '',
@@ -58,7 +61,9 @@ function WebinarCreator({ user, onBack, editingWebinarId }: WebinarCreatorProps)
   const [currentWebinarId, setCurrentWebinarId] = useState<string | undefined>(editingWebinarId)
   const [lastSaved, setLastSaved] = useState<Date | null>(null)
   
-  const { createProject, updateProject, getProject } = useWebinarProject(user.id)
+  // Safe access to user with fallback
+  const userId = user?.id || ''
+  const { createProject, updateProject, getProject } = useWebinarProject(userId)
   const { toast } = useToast()
 
   // Load existing webinar if editing

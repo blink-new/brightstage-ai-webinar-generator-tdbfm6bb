@@ -17,28 +17,44 @@ function App() {
   // Add error boundary for analytics and other network errors
   useEffect(() => {
     const handleError = (event: ErrorEvent) => {
-      if (event.error?.message?.includes('analytics') || 
-          event.error?.message?.includes('BlinkNetworkError') ||
-          event.error?.message?.includes('Cannot access') ||
-          event.error?.message?.includes('before initialization') ||
-          event.error?.message?.includes('Minified React error #185') ||
-          event.error?.message?.includes('hydration') ||
-          event.error?.message?.includes('validateDOMNesting')) {
-        console.warn('Suppressed error:', event.error)
+      const errorMessage = event.error?.message || ''
+      const errorStack = event.error?.stack || ''
+      
+      // Check if this is an analytics-related error
+      if (errorMessage.includes('analytics') || 
+          errorMessage.includes('BlinkNetworkError') ||
+          errorMessage.includes('Failed to send analytics events') ||
+          errorMessage.includes('Failed to fetch') ||
+          errorStack.includes('fk.flush') ||
+          errorStack.includes('J_.request') ||
+          errorMessage.includes('Cannot access') ||
+          errorMessage.includes('before initialization') ||
+          errorMessage.includes('Minified React error #185') ||
+          errorMessage.includes('hydration') ||
+          errorMessage.includes('validateDOMNesting')) {
+        console.warn('Suppressed non-critical error:', event.error)
         event.preventDefault()
         return false
       }
     }
 
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
-      if (event.reason?.message?.includes('analytics') || 
-          event.reason?.message?.includes('BlinkNetworkError') ||
-          event.reason?.message?.includes('Cannot access') ||
-          event.reason?.message?.includes('before initialization') ||
-          event.reason?.message?.includes('Minified React error #185') ||
-          event.reason?.message?.includes('hydration') ||
-          event.reason?.message?.includes('validateDOMNesting')) {
-        console.warn('Suppressed promise rejection:', event.reason)
+      const reasonMessage = event.reason?.message || ''
+      const reasonStack = event.reason?.stack || ''
+      
+      // Check if this is an analytics-related promise rejection
+      if (reasonMessage.includes('analytics') || 
+          reasonMessage.includes('BlinkNetworkError') ||
+          reasonMessage.includes('Failed to send analytics events') ||
+          reasonMessage.includes('Failed to fetch') ||
+          reasonStack.includes('fk.flush') ||
+          reasonStack.includes('J_.request') ||
+          reasonMessage.includes('Cannot access') ||
+          reasonMessage.includes('before initialization') ||
+          reasonMessage.includes('Minified React error #185') ||
+          reasonMessage.includes('hydration') ||
+          reasonMessage.includes('validateDOMNesting')) {
+        console.warn('Suppressed non-critical promise rejection:', event.reason)
         event.preventDefault()
         return false
       }

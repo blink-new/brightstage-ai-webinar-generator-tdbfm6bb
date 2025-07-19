@@ -5,32 +5,56 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 const supabaseUrl = 'https://qvqpzuokvpnolgddfdko.supabase.co'
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF2cXB6dW9rdnBub2xnZGRmZGtvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI3NzAwMTYsImV4cCI6MjA2ODM0NjAxNn0.DuaKyzt7NFtfct421PVv8BKkXDNsNgHN6jF2oPQl-dY'
 
-// Create Supabase client
+// Create Supabase client first
 export const supabase = createSupabaseClient(supabaseUrl, supabaseAnonKey)
 
-// Create Blink client directly
-export const blink = createClient({
-  projectId: 'brightstage-ai-webinar-generator-tdbfm6bb',
-  authRequired: true
-})
+// Create Blink client with error handling
+let blinkClient: ReturnType<typeof createClient> | null = null
+
+try {
+  blinkClient = createClient({
+    projectId: 'brightstage-ai-webinar-generator-tdbfm6bb',
+    authRequired: true
+  })
+
+  // Disable analytics if it's causing issues
+  if (blinkClient?.analytics?.disable) {
+    try {
+      blinkClient.analytics.disable()
+      console.log('Blink analytics disabled to prevent network errors')
+    } catch (analyticsError) {
+      console.warn('Failed to disable Blink analytics:', analyticsError)
+    }
+  }
+} catch (error) {
+  console.error('Failed to initialize Blink client:', error)
+}
+
+export const blink = blinkClient!
 
 // Database helper functions using Supabase
 export const db = {
   users: {
     async list(options: any = {}) {
       try {
-        const queryPromise = supabase
-          .from('users')
-          .select('*')
-          .eq('id', options.where?.id)
-          .limit(options.limit || 100)
+        let query = supabase.from('users').select('*')
+        
+        if (options.where?.id) {
+          query = query.eq('id', options.where.id)
+        }
+        
+        if (options.limit) {
+          query = query.limit(options.limit)
+        } else {
+          query = query.limit(100)
+        }
         
         // Add timeout to prevent hanging
         const timeoutPromise = new Promise((_, reject) => 
           setTimeout(() => reject(new Error('Database query timeout')), 10000)
         )
         
-        const { data, error } = await Promise.race([queryPromise, timeoutPromise]) as any
+        const { data, error } = await Promise.race([query, timeoutPromise]) as any
         
         if (error) {
           console.error('Database error in users.list:', error)

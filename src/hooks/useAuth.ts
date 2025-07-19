@@ -18,6 +18,7 @@ interface AuthState {
 }
 
 export function useAuth() {
+  // ALL HOOKS MUST BE CALLED UNCONDITIONALLY AT TOP LEVEL
   const [authState, setAuthState] = useState<AuthState>({
     user: null,
     isLoading: true,
@@ -30,6 +31,20 @@ export function useAuth() {
 
     const initAuth = async () => {
       try {
+        // Safe check for blink client availability
+        const blinkClient = blink
+        if (!blinkClient) {
+          console.error('Blink client not initialized')
+          if (mounted) {
+            setAuthState({
+              user: null,
+              isLoading: false,
+              isAuthenticated: false
+            })
+          }
+          return
+        }
+
         // Wait for blink client to be ready with timeout
         const client = await Promise.race([
           Promise.resolve(blink),
@@ -38,7 +53,7 @@ export function useAuth() {
           )
         ]) as typeof blink
         
-        if (!mounted) return
+        if (!mounted || !client) return
         
         unsubscribe = client.auth.onAuthStateChanged(async (state: any) => {
           if (!mounted) return
@@ -206,6 +221,11 @@ export function useAuth() {
 
   const login = () => {
     try {
+      if (!blink) {
+        console.error('Blink client not available for login')
+        window.location.href = 'https://blink.new/auth'
+        return
+      }
       blink.auth.login()
     } catch (error) {
       console.error('Login failed:', error)
@@ -216,6 +236,11 @@ export function useAuth() {
 
   const logout = () => {
     try {
+      if (!blink) {
+        console.error('Blink client not available for logout')
+        window.location.reload()
+        return
+      }
       blink.auth.logout()
     } catch (error) {
       console.error('Logout failed:', error)

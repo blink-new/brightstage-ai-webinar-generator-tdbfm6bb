@@ -22,16 +22,28 @@ export class RealVideoGenerator {
   private isLoaded = false
 
   constructor() {
-    this.ffmpeg = new FFmpeg()
+    // Initialize FFmpeg safely
+    try {
+      this.ffmpeg = new FFmpeg()
+    } catch (error) {
+      console.error('Failed to create FFmpeg instance:', error)
+      this.ffmpeg = null
+    }
   }
 
   async initialize(): Promise<void> {
     if (this.isLoaded || !this.ffmpeg) return
 
     try {
+      // Ensure FFmpeg instance exists before loading
+      const ffmpegInstance = this.ffmpeg
+      if (!ffmpegInstance) {
+        throw new Error('FFmpeg instance not available')
+      }
+
       // Load FFmpeg with proper CORS handling
       const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd'
-      await this.ffmpeg.load({
+      await ffmpegInstance.load({
         coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
         wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
       })
@@ -208,14 +220,16 @@ export class RealVideoGenerator {
     options: RealVideoGenerationOptions,
     onProgress?: (progress: VideoGenerationProgress) => void
   ): Promise<Blob> {
-    if (!this.ffmpeg) {
+    // Ensure FFmpeg is available before proceeding
+    const ffmpegInstance = this.ffmpeg
+    if (!ffmpegInstance) {
       throw new Error('FFmpeg not initialized')
     }
 
     try {
-      // Calculate slide durations
-      const totalDuration = data.duration * 60 // Convert to seconds
-      const slideDuration = totalDuration / slideImages.length
+      // Calculate slide durations safely
+      const totalDuration = (data?.duration || 60) * 60 // Convert to seconds
+      const slideDuration = slideImages.length > 0 ? totalDuration / slideImages.length : 5
 
       // Download and prepare slide images
       onProgress?.({
@@ -226,7 +240,7 @@ export class RealVideoGenerator {
 
       for (let i = 0; i < slideImages.length; i++) {
         const imageData = await fetchFile(slideImages[i])
-        await this.ffmpeg.writeFile(`slide_${i}.png`, imageData)
+        await ffmpegInstance.writeFile(`slide_${i}.png`, imageData)
       }
 
       // Download and prepare audio
@@ -237,7 +251,7 @@ export class RealVideoGenerator {
       })
 
       const audioData = await fetchFile(audioUrl)
-      await this.ffmpeg.writeFile('audio.mp3', audioData)
+      await ffmpegInstance.writeFile('audio.mp3', audioData)
 
       // Create video from slides
       onProgress?.({
@@ -260,10 +274,10 @@ export class RealVideoGenerator {
         concatContent += `file 'slide_${slideImages.length - 1}.png'\n`
       }
 
-      await this.ffmpeg.writeFile('slides.txt', concatContent)
+      await ffmpegInstance.writeFile('slides.txt', concatContent)
 
       // Generate video with slides
-      await this.ffmpeg.exec([
+      await ffmpegInstance.exec([
         '-f', 'concat',
         '-safe', '0',
         '-i', 'slides.txt',
@@ -283,7 +297,7 @@ export class RealVideoGenerator {
       const outputFormat = options.format === 'webm' ? 'webm' : 'mp4'
       const codec = options.format === 'webm' ? 'libvpx-vp9' : 'libx264'
 
-      await this.ffmpeg.exec([
+      await ffmpegInstance.exec([
         '-i', 'slides_video.mp4',
         '-i', 'audio.mp3',
         '-c:v', codec,
@@ -294,7 +308,7 @@ export class RealVideoGenerator {
       ])
 
       // Read the output file
-      const outputData = await this.ffmpeg.readFile(`output.${outputFormat}`)
+      const outputData = await ffmpegInstance.readFile(`output.${outputFormat}`)
       
       // Create blob
       const mimeType = options.format === 'webm' ? 'video/webm' : 'video/mp4'
@@ -462,14 +476,15 @@ export class RealVideoGenerator {
   }
 
   private async cleanup(): Promise<void> {
-    if (!this.ffmpeg) return
+    const ffmpegInstance = this.ffmpeg
+    if (!ffmpegInstance) return
 
     try {
       // List and remove all files
-      const files = await this.ffmpeg.listDir('/')
+      const files = await ffmpegInstance.listDir('/')
       for (const file of files) {
         if (file.isFile) {
-          await this.ffmpeg.deleteFile(file.name)
+          await ffmpegInstance.deleteFile(file.name)
         }
       }
     } catch (error) {
