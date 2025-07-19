@@ -5,7 +5,7 @@ import App from './App'
 import { errorService } from './services/errorService'
 
 // Initialize error service
-errorService
+void errorService.initialize()
 
 const rootElement = document.getElementById('root')
 if (!rootElement) {

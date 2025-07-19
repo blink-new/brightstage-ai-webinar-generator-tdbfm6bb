@@ -116,7 +116,7 @@ class AnalyticsService {
       if (blink?.analytics?.log) {
         for (const event of eventsToSend) {
           try {
-            await blink.analytics.log(event.eventType, event.eventData)
+            blink.analytics.log(event.eventType, event.eventData)
           } catch (error) {
             console.warn('Failed to send analytics event via Blink SDK:', error)
             // If Blink analytics fails, disable it to prevent future errors
